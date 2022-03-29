@@ -25,7 +25,8 @@ olts = loadOLTsfromfile('config.json')
 OLT_Test = getOLTbyID(3,olts)
 
 # Create olt instance
-olt_horsham = Adtran_TA5K(OLT_Test["id"], OLT_Test["address"], OLT_Test["port"], OLT_Test["username"], OLT_Test["password"])
+olt = Adtran_TA5K(OLT_Test["id"], OLT_Test["address"], OLT_Test["port"], OLT_Test["username"], OLT_Test["password"])
 
 # Test command
-olt_horsham.interactive_provision()
+olt.provADTRANSDX611("ADTN21081694","2@1/3/2.gpon",1000,1000,'ipoe-10','20')
+#olt.interactive_provision()
