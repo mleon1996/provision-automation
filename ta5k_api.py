@@ -10,6 +10,7 @@ class Adtran_TA5K():
     SN = ""
     location = ""
 
+    # Constructor
     def __init__(self, id, address, port, username, password):
         self.id = id
         self.address = address
@@ -44,13 +45,20 @@ class Adtran_TA5K():
     def sendCommandInteractive(self, command):
         return self.net_connect.send_command(command)
 
+    # Allows sending multiple command, uses the built in object, user must remember to close the connection.
+    def sendConigInteractive(self, command):
+        self.net_connect.config_mode()
+        out = self.net_connect.send_command(command)
+        self.net_connect.enable()
+        return out
+
     # Closes the connection
     def closeConnection(self):
         self.net_connect.disconnect()
         return 0
 
     # Config related functions
-
+    
     def getAllConfig(self):
         cmd = "show running-config"
         return self.sendCommandInteractive(cmd)
@@ -188,15 +196,55 @@ class Adtran_TA5K():
         if (next_index != 0) and (next_index < 128):
             return next_index
 
+    def provADTRANSDX611(self, serial_number, remote_index, rate_up, rate_down, evc_map, match_ce):
+        # Step 1 - Register ONT
+        self.net_connect.config_mode()
+        self.net_connect.send_command('remote-device ont '+remote_index, expect_string='#')
+        self.net_connect.send_command('serial-number "'+serial_number+'"', expect_string='#')
+        self.net_connect.send_command('no shutdown', expect_string='#')
+        
+        # Step 2 - Bridng up interface
+        self.net_connect.send_command('interface gigabit-ethernet '+remote_index.split('@')[0]+'/0/1@'+remote_index.split('@')[1], expect_string="#")
+        self.net_connect.send_command('no shutdown', expect_string='#')
+        
+        # Setp 3 - Configure shaper
+        self.net_connect.send_command('shaper "'+remote_index+'_up" '+remote_index, expect_string='#')
+        self.net_connect.send_command('per interface gpon '+remote_index.split('@')[0]+'/0/1@'+remote_index.split('@')[1]+' channel 1', expect_string='#')
+        self.net_connect.send_command('rate '+str(rate_up*1000), expect_string='#')
+        self.net_connect.send_command('gpon channel assured-bandwidth 0', expect_string='#')
+        self.net_connect.send_command('gpon channel fixed-bandwidth 0', expect_string='#')
+        self.net_connect.send_command('min-rate 0', expect_string='#')
+        self.net_connect.send_command('no shutdown', expect_string='#')
+
+        self.net_connect.send_command('shaper "'+remote_index+'_down" '+remote_index.split('@')[1][0:3], expect_string='#') # Esto tiene un problem
+        self.net_connect.send_command('per remote-device '+remote_index+' queue 0', expect_string='#')
+        self.net_connect.send_command('rate '+str(rate_down*1000), expect_string='#')
+        self.net_connect.send_command('min-rate 0', expect_string='#')
+        self.net_connect.send_command('no shutdown', expect_string='#')
+
+        # Step 4 - Create interface map
+        self.net_connect.send_command('evc-map "'+remote_index+'_'+evc_map+'" '+remote_index.split('@')[1][0:3], expect_string='#') # Esto tiene un problema
+        self.net_connect.send_command('connect evc "'+evc_map+'" ', expect_string='#')
+        self.net_connect.send_command('connect uni gigabit-ethernet '+remote_index.split('@')[0]+'/0/1@'+remote_index.split('@')[1], expect_string='#')
+        self.net_connect.send_command('match ce-vlan-id '+match_ce, expect_string='#')
+        self.net_connect.send_command('no shutdown', expect_string='#')
+
+        # Step 5 - Return to enable
+        self.net_connect.enable()
+        return 0
+
     def interactive_provision(self):
         print("\nWelcome to integrated provision, here is the list of available remote devices:\n")
         remote_devices = self.getRDInactivePretty()
         for i in range(len(remote_devices)):
-            print("   ->  "+str(i)+"  -  "+remote_devices[i]["remote_index"]+"  -  "+remote_devices[i]["serial_number"]+"\n")
-        id = int(input("Please input the id of the selected device: "))
+            print("   ->  "+str(i)+"  -  "+remote_devices[i]["remote_index"]+"  -  "+remote_devices[i]["serial_number"])
+        id = int(input("\nPlease input the id of the selected device: "))
         print("\nYou selected: "+remote_devices[i]["serial_number"])
         print("\nSelecting new remote index...")
         new_index = self.findNextRemoteIndex(remote_devices[i]["remote_index"])
-        print("\nNew remote index = "+str(new_index))
-        
+        print("\nNew remote index = "+str(new_index)+"@"+remote_devices[i]["remote_index"]+".gpon")
+        print("\nProvisioning "+remote_devices[i]["serial_number"]+" at "+str(new_index)+"@"+remote_devices[i]["remote_index"]+".gpon")
+        self.provADTRANSDX611(remote_devices[i]["serial_number"], str(new_index)+"@"+remote_devices[i]["remote_index"]+".gpon")
+        print("\nProvisioned")
+
         return 0
